@@ -1,0 +1,20 @@
+version: 2.1
+
+executors:
+  base:
+    docker:
+      - image: cimg/base:stable
+    resource_class: medium
+
+jobs:
+  job_a:
+    executor: base
+    steps:
+      - checkout
+      - run: echo "Running job a"
+      - run: cat path_a/README.md
+
+workflows:
+  github_app_triggered_workflow:
+    jobs:
+      - job_a
