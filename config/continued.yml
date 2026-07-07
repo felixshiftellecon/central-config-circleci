@@ -1,0 +1,19 @@
+version: 2.1
+
+# DRY continued config, held centrally. It declares the pipeline parameters
+# (and their defaults) and the workflow that working repos share. Parameter
+# *values* are injected from the working repo at runtime by the setup config.
+
+parameters:
+  test:
+    type: string
+    default: "pass me"
+
+orbs:
+  central-orb: https://raw.githubusercontent.com/felixshiftellecon/central-config-circleci/continuation/orbs/orb.yml
+
+workflows:
+  test-workflow:
+    jobs:
+      - central-orb/orb-job:
+          job_param_1: << pipeline.parameters.test >>

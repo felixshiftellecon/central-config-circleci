@@ -1,0 +1,13 @@
+version: 2.1
+
+jobs:
+  orb-job:
+    docker:
+      - image: cimg/base:stable
+    resource_class: small
+    parameters:
+      job_param_1:
+        type: string
+        default: "don't show me"
+    steps:
+      - run: echo << parameters.job_param_1 >>

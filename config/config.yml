@@ -1,0 +1,41 @@
+version: 2.1
+setup: true
+
+# Central setup config -- this is the config source for the working repo's
+# pipeline (via the GitHub App). It checks out the working repo (the checkout
+# source), reads that repo's pipeline parameter values, and then continues into
+# the DRY workflow that lives here in the central repo. This keeps the workflow
+# defined once, centrally, while each working repo determines its own values.
+
+orbs:
+  continuation: circleci/continuation@1.0.0
+
+jobs:
+  build-parameters:
+    docker:
+      - image: cimg/base:stable
+    resource_class: small
+    steps:
+      - checkout
+      - run:
+          name: Install yq
+          command: |
+            curl -sSL "https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64" -o /tmp/yq
+            chmod +x /tmp/yq
+      - run:
+          name: Read pipeline parameter values from the working repo
+          command: |
+            /tmp/yq -o=json '.parameters' config/params.yml | tee /tmp/pipeline-parameters.json
+      - run:
+          name: Fetch the DRY continued config from the central repo
+          command: |
+            curl -sSL "https://raw.githubusercontent.com/felixshiftellecon/central-config-circleci/continuation/config/continued.yml" -o /tmp/continued.yml
+            cat /tmp/continued.yml
+      - continuation/continue:
+          configuration_path: /tmp/continued.yml
+          parameters: /tmp/pipeline-parameters.json
+
+workflows:
+  setup:
+    jobs:
+      - build-parameters
