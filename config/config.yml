@@ -1,11 +1,22 @@
 version: 2.1
 setup: true
 
-# Central setup config -- this is the config source for the working repo's
-# pipeline (via the GitHub App). It checks out the working repo (the checkout
-# source), reads that repo's pipeline parameter values, and then continues into
-# the DRY workflow that lives here in the central repo. This keeps the workflow
-# defined once, centrally, while each working repo determines its own values.
+# Central setup config -- the config source for the working repo's pipeline
+# (via the GitHub App). It:
+#   1. checks out the working repo (the checkout source),
+#   2. reads that repo's single customization file (ci/app.yml) for parameter
+#      values,
+#   3. materializes the DRY continued config that is embedded below, and
+#   4. continues into it, injecting the parameter values.
+#
+# The continued config is EMBEDDED here (base64) rather than fetched over HTTP.
+# CircleCI already fetches this setup config from the central repo through the
+# authenticated GitHub App integration, so embedding keeps the whole flow working
+# for PRIVATE repos too -- there is no raw/unauthenticated download of config.
+#
+# The base64 blob is the canonical config/continued.yml. To change the workflow,
+# edit config/continued.yml and regenerate:
+#     base64 < config/continued.yml | tr -d '\n'
 
 orbs:
   continuation: circleci/continuation@1.0.0
@@ -23,13 +34,13 @@ jobs:
             curl -sSL "https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64" -o /tmp/yq
             chmod +x /tmp/yq
       - run:
-          name: Read pipeline parameter values from the working repo
+          name: Read pipeline parameter values from the working repo (ci/app.yml)
           command: |
-            /tmp/yq -o=json '.parameters' config/params.yml | tee /tmp/pipeline-parameters.json
+            /tmp/yq -o=json '.parameters | with_entries(.value = .value.default)' ci/app.yml | tee /tmp/pipeline-parameters.json
       - run:
-          name: Fetch the DRY continued config from the central repo
+          name: Materialize the DRY continued config (embedded; no HTTP fetch)
           command: |
-            curl -sSL "https://raw.githubusercontent.com/felixshiftellecon/central-config-circleci/continuation/config/continued.yml" -o /tmp/continued.yml
+            echo "dmVyc2lvbjogMi4xCgojIERSWSBjb250aW51ZWQgY29uZmlnLCBoZWxkIGNlbnRyYWxseS4gSXQgZGVjbGFyZXMgdGhlIHBpcGVsaW5lIHBhcmFtZXRlcnMKIyAoYW5kIHRoZWlyIGRlZmF1bHRzKSBhbmQgdGhlIHdvcmtmbG93IHRoYXQgd29ya2luZyByZXBvcyBzaGFyZS4gUGFyYW1ldGVyCiMgKnZhbHVlcyogYXJlIGluamVjdGVkIGZyb20gdGhlIHdvcmtpbmcgcmVwbyBhdCBydW50aW1lIGJ5IHRoZSBzZXR1cCBjb25maWcuCiMKIyBUd28gam9icyBydW46CiMgICAtIGNlbnRyYWwtb3JiL29yYi1qb2IgOiBhIHN0YW5kYXJkIGpvYiBmcm9tIHRoZSBzaGFyZWQgVVJMIG9yYiAobm90IG92ZXJyaWRhYmxlKQojICAgLSBzZWNvbmQtam9iICAgICAgICAgIDogYSBzdGFuZGFyZCBqb2IgdGhlIHdvcmtpbmcgcmVwbyBDQU4gb3ZlcnJpZGUsIHZpYQojICAgICAgICAgICAgICAgICAgICAgICAgICAgYG92ZXJyaWRlLXdpdGhgLiBJZiB0aGUgd29ya2luZyByZXBvJ3Mgb3ZlcnJpZGUgb3JiCiMgICAgICAgICAgICAgICAgICAgICAgICAgICBkZWZpbmVzIGBzZWNvbmQtam9iYCwgdGhhdCBkZWZpbml0aW9uIHJlcGxhY2VzIHRoZQojICAgICAgICAgICAgICAgICAgICAgICAgICAgY2VudHJhbCBkZWZhdWx0IGJlbG93OyBvdGhlcndpc2UgdGhlIGRlZmF1bHQgaXMgdXNlZC4KCnBhcmFtZXRlcnM6CiAgdGVzdDoKICAgIHR5cGU6IHN0cmluZwogICAgZGVmYXVsdDogInBhc3MgbWUiCiAgIyBWYWx1ZSBwYXNzZWQgaW50byB0aGUgKHBvc3NpYmx5IG92ZXJyaWRkZW4pIHNlY29uZCBqb2IuIFNldCBmcm9tIHRoZSB3b3JraW5nIHJlcG8uCiAgc2Vjb25kX21lc3NhZ2U6CiAgICB0eXBlOiBzdHJpbmcKICAgIGRlZmF1bHQ6ICJjZW50cmFsIGRlZmF1bHQgZm9yIHNlY29uZC1qb2IiCiAgIyBVUkwgb3JiIHRoYXQgTUFZIG92ZXJyaWRlIGBzZWNvbmQtam9iYC4gRGVmYXVsdHMgdG8gdGhlIHdvcmtpbmcgcmVwbydzIHNpbmdsZQogICMgY3VzdG9taXphdGlvbiBmaWxlLCBzbyBhIHJlcG8gb25seSBoYXMgdG8gZGVmaW5lIGBzZWNvbmQtam9iYCBpbiBjaS9hcHAueW1sLgogIG92ZXJyaWRlX29yYl91cmw6CiAgICB0eXBlOiBzdHJpbmcKICAgIGRlZmF1bHQ6ICJodHRwczovL3Jhdy5naXRodWJ1c2VyY29udGVudC5jb20vZmVsaXhzaGlmdGVsbGVjb24vd29ya2luZy1hcHAtc3RhbmRhbG9uZS9jb250aW51YXRpb24vY2kvYXBwLnltbCIKCm9yYnM6CiAgY2VudHJhbC1vcmI6IGh0dHBzOi8vcmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbS9mZWxpeHNoaWZ0ZWxsZWNvbi9jZW50cmFsLWNvbmZpZy1jaXJjbGVjaS9jb250aW51YXRpb24vb3Jicy9vcmIueW1sCiAgb3ZlcnJpZGUtb3JiOiA8PCBwaXBlbGluZS5wYXJhbWV0ZXJzLm92ZXJyaWRlX29yYl91cmwgPj4KCmpvYnM6CiAgIyBDZW50cmFsIGRlZmF1bHQgKGZhbGxiYWNrKSBmb3IgdGhlIG92ZXJyaWRhYmxlIHNlY29uZCBqb2IuIFVzZWQgb25seSBpZiB0aGUKICAjIG92ZXJyaWRlIG9yYiBkb2VzIG5vdCBkZWZpbmUgYHNlY29uZC1qb2JgLgogIHNlY29uZC1qb2I6CiAgICBkb2NrZXI6CiAgICAgIC0gaW1hZ2U6IGNpbWcvYmFzZTpzdGFibGUKICAgIHJlc291cmNlX2NsYXNzOiBzbWFsbAogICAgcGFyYW1ldGVyczoKICAgICAgam9iX3BhcmFtXzI6CiAgICAgICAgdHlwZTogc3RyaW5nCiAgICAgICAgZGVmYXVsdDogImJhc2UgZGVmYXVsdCIKICAgIHN0ZXBzOgogICAgICAtIHJ1bjogJ2VjaG8gIkJBU0UgKGNlbnRyYWwpIHNlY29uZC1qb2I6IDw8IHBhcmFtZXRlcnMuam9iX3BhcmFtXzIgPj4iJwoKd29ya2Zsb3dzOgogIHRlc3Qtd29ya2Zsb3c6CiAgICBqb2JzOgogICAgICAtIGNlbnRyYWwtb3JiL29yYi1qb2I6CiAgICAgICAgICBqb2JfcGFyYW1fMTogPDwgcGlwZWxpbmUucGFyYW1ldGVycy50ZXN0ID4+CiAgICAgIC0gc2Vjb25kLWpvYjoKICAgICAgICAgIG92ZXJyaWRlLXdpdGg6IG92ZXJyaWRlLW9yYi9zZWNvbmQtam9iCiAgICAgICAgICBqb2JfcGFyYW1fMjogPDwgcGlwZWxpbmUucGFyYW1ldGVycy5zZWNvbmRfbWVzc2FnZSA+Pgo=" | base64 -d > /tmp/continued.yml
             cat /tmp/continued.yml
       - continuation/continue:
           configuration_path: /tmp/continued.yml

@@ -19,11 +19,11 @@ parameters:
   second_message:
     type: string
     default: "central default for second-job"
-  # URL orb that MAY override `second-job`. Defaults to the working repo's own
-  # override file, so a repo only has to drop an orbs/override.yml to customize.
+  # URL orb that MAY override `second-job`. Defaults to the working repo's single
+  # customization file, so a repo only has to define `second-job` in ci/app.yml.
   override_orb_url:
     type: string
-    default: "https://raw.githubusercontent.com/felixshiftellecon/working-app-standalone/continuation/orbs/override.yml"
+    default: "https://raw.githubusercontent.com/felixshiftellecon/working-app-standalone/continuation/ci/app.yml"
 
 orbs:
   central-orb: https://raw.githubusercontent.com/felixshiftellecon/central-config-circleci/continuation/orbs/orb.yml
