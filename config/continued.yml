@@ -3,17 +3,51 @@ version: 2.1
 # DRY continued config, held centrally. It declares the pipeline parameters
 # (and their defaults) and the workflow that working repos share. Parameter
 # *values* are injected from the working repo at runtime by the setup config.
+#
+# Two jobs run:
+#   - central-orb/orb-job : a standard job from the shared URL orb (not overridable)
+#   - second-job          : a standard job the working repo CAN override, via
+#                           `override-with`. If the working repo's override orb
+#                           defines `second-job`, that definition replaces the
+#                           central default below; otherwise the default is used.
 
 parameters:
   test:
     type: string
     default: "pass me"
+  # Value passed into the (possibly overridden) second job. Set from the working repo.
+  second_message:
+    type: string
+    default: "central default for second-job"
+  # URL orb that MAY override `second-job`. Defaults to the working repo's own
+  # override file, so a repo only has to drop an orbs/override.yml to customize.
+  override_orb_url:
+    type: string
+    default: "https://raw.githubusercontent.com/felixshiftellecon/working-app-standalone/continuation/orbs/override.yml"
 
 orbs:
   central-orb: https://raw.githubusercontent.com/felixshiftellecon/central-config-circleci/continuation/orbs/orb.yml
+  override-orb: << pipeline.parameters.override_orb_url >>
+
+jobs:
+  # Central default (fallback) for the overridable second job. Used only if the
+  # override orb does not define `second-job`.
+  second-job:
+    docker:
+      - image: cimg/base:stable
+    resource_class: small
+    parameters:
+      job_param_2:
+        type: string
+        default: "base default"
+    steps:
+      - run: echo "BASE (central) second-job: << parameters.job_param_2 >>"
 
 workflows:
   test-workflow:
     jobs:
       - central-orb/orb-job:
           job_param_1: << pipeline.parameters.test >>
+      - second-job:
+          override-with: override-orb/second-job
+          job_param_2: << pipeline.parameters.second_message >>
