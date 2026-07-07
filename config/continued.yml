@@ -41,7 +41,7 @@ jobs:
         type: string
         default: "base default"
     steps:
-      - run: echo "BASE (central) second-job: << parameters.job_param_2 >>"
+      - run: 'echo "BASE (central) second-job: << parameters.job_param_2 >>"'
 
 workflows:
   test-workflow:
