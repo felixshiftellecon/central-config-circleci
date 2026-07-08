@@ -26,6 +26,13 @@ parameters:
   override_orb_url:
     type: string
     default: "https://raw.githubusercontent.com/felixshiftellecon/central-config-circleci/continuation/orbs/orb.yml"
+  # Name of the job (in the override orb) that replaces `second-job`. The consumer
+  # sets this to whatever they named their override job; it defaults to
+  # "second-job". If the override orb has no job by this name, override-with
+  # falls back to the central base job below.
+  override_job:
+    type: string
+    default: "second-job"
 
 orbs:
   central-orb: https://raw.githubusercontent.com/felixshiftellecon/central-config-circleci/continuation/orbs/orb.yml
@@ -51,5 +58,5 @@ workflows:
       - central-orb/orb-job:
           job_param_1: << pipeline.parameters.test >>
       - second-job:
-          override-with: override-orb/second-job
+          override-with: override-orb/<< pipeline.parameters.override_job >>
           job_param_2: << pipeline.parameters.second_message >>

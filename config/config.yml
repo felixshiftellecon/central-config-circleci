@@ -10,19 +10,80 @@ setup: true
 #        - override target   = this repo's ci/app.yml *only if it defines jobs*
 #      otherwise (no ci/app.yml, or no jobs in it):
 #        - parameter values  = {} (central defaults are used)
-#        - override target   = the shared orb (which has no second-job), so
-#                              override-with falls back to the central base job.
+#        - override target   = the shared orb (no second-job) -> base job runs.
 #      => DEFAULT MODE IS "NO OVERRIDE". A repo opts in by adding ci/app.yml.
-#   3. materialize the embedded DRY continued config (base64; no HTTP fetch, so
-#      this works for private repos too)
+#   3. fetch the DRY continued config from the (private) central repo using the
+#      reusable `github-app-fetch` command below (short-lived installation token,
+#      no PAT, works for private repos). Credentials come from the
+#      `central-config-reader` context.
 #   4. continue into it, injecting the derived parameters.
-#
-# The base64 blob is the canonical config/continued.yml. To change the workflow,
-# edit config/continued.yml and regenerate:
-#     base64 < config/continued.yml | tr -d '\n'
 
 orbs:
   continuation: circleci/continuation@1.0.0
+
+# ---------------------------------------------------------------------------
+# Reusable command. This is written to be lifted verbatim into a URL/registry
+# orb later: it is self-contained and fully parameterized (no hard-coded repo,
+# path, ref, or env var names). Callers supply the App credentials via a context.
+# ---------------------------------------------------------------------------
+commands:
+  github-app-fetch:
+    description: >
+      Fetch a single file from a (possibly private) GitHub repo using a GitHub
+      App installation token. Signs a JWT with the App private key, exchanges it
+      for a short-lived installation token, then downloads the file. Requires
+      openssl and curl (present on cimg/base).
+    parameters:
+      repo:
+        type: string
+        description: "Source repo, as owner/name."
+      path:
+        type: string
+        description: "File path within the repo."
+      ref:
+        type: string
+        default: "main"
+        description: "Git ref (branch, tag, or SHA) to read from."
+      output:
+        type: string
+        default: "/tmp/fetched"
+        description: "Local path to write the fetched file to."
+      app_id_var:
+        type: env_var_name
+        default: GH_APP_ID
+        description: "Env var holding the GitHub App ID."
+      installation_id_var:
+        type: env_var_name
+        default: GH_APP_INSTALLATION_ID
+        description: "Env var holding the installation ID."
+      private_key_var:
+        type: env_var_name
+        default: GH_APP_PRIVATE_KEY
+        description: "Env var holding the App private key (PEM)."
+    steps:
+      - run:
+          name: "Fetch << parameters.repo >> / << parameters.path >> via GitHub App"
+          command: |
+            set -e
+            b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+            now=$(date +%s)
+            header=$(printf '%s' '{"alg":"RS256","typ":"JWT"}' | b64url)
+            payload=$(printf '%s' "{\"iat\":$((now-60)),\"exp\":$((now+540)),\"iss\":\"${<< parameters.app_id_var >>}\"}" | b64url)
+            # Sign with the App private key via process substitution (key never on disk).
+            sig=$(printf '%s' "$header.$payload" \
+              | openssl dgst -sha256 -sign <(printf '%s' "${<< parameters.private_key_var >>}") -binary \
+              | b64url)
+            JWT="$header.$payload.$sig"
+            # App JWT -> short-lived installation token.
+            TOKEN=$(curl -fsS -X POST \
+              -H "Authorization: Bearer $JWT" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/app/installations/${<< parameters.installation_id_var >>}/access_tokens" \
+              | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+            # Download the file with the installation token.
+            curl -fsSL \
+              -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github.raw" \
+              "https://api.github.com/repos/<< parameters.repo >>/contents/<< parameters.path >>?ref=<< parameters.ref >>" \
+              -o "<< parameters.output >>"
 
 jobs:
   build-parameters:
@@ -43,9 +104,7 @@ jobs:
             PARAMS='{}'
             OVERRIDE_URL="https://raw.githubusercontent.com/felixshiftellecon/central-config-circleci/continuation/orbs/orb.yml"
             if [ -f ci/app.yml ]; then
-              # Parameter VALUES = each parameter's default declared in ci/app.yml.
               PARAMS=$(/tmp/yq -o=json '(.parameters // {}) | with_entries(.value = .value.default)' ci/app.yml)
-              # Only treat this repo as an override if its ci/app.yml defines jobs.
               if /tmp/yq -e '.jobs' ci/app.yml >/dev/null 2>&1; then
                 OVERRIDE_URL="https://raw.githubusercontent.com/${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}/${CIRCLE_BRANCH}/ci/app.yml"
               fi
@@ -53,11 +112,14 @@ jobs:
             export OVERRIDE_URL
             echo "$PARAMS" | /tmp/yq -o=json '. + {"override_orb_url": strenv(OVERRIDE_URL)}' > /tmp/pipeline-parameters.json
             echo "Resolved pipeline parameters:"; cat /tmp/pipeline-parameters.json
+      - github-app-fetch:
+          repo: felixshiftellecon/central-config-circleci
+          path: config/continued.yml
+          ref: continuation
+          output: /tmp/continued.yml
       - run:
-          name: Materialize the DRY continued config (embedded; no HTTP fetch)
-          command: |
-            echo "dmVyc2lvbjogMi4xCgojIERSWSBjb250aW51ZWQgY29uZmlnLCBoZWxkIGNlbnRyYWxseS4gSXQgZGVjbGFyZXMgdGhlIHBpcGVsaW5lIHBhcmFtZXRlcnMKIyAoYW5kIHRoZWlyIGRlZmF1bHRzKSBhbmQgdGhlIHdvcmtmbG93IHRoYXQgd29ya2luZyByZXBvcyBzaGFyZS4gUGFyYW1ldGVyCiMgKnZhbHVlcyogYXJlIGluamVjdGVkIGZyb20gdGhlIHdvcmtpbmcgcmVwbyBhdCBydW50aW1lIGJ5IHRoZSBzZXR1cCBjb25maWcuCiMKIyBUd28gam9icyBydW46CiMgICAtIGNlbnRyYWwtb3JiL29yYi1qb2IgOiBhIHN0YW5kYXJkIGpvYiBmcm9tIHRoZSBzaGFyZWQgVVJMIG9yYiAobm90IG92ZXJyaWRhYmxlKQojICAgLSBzZWNvbmQtam9iICAgICAgICAgIDogYSBzdGFuZGFyZCBqb2IgdGhlIHdvcmtpbmcgcmVwbyBDQU4gb3ZlcnJpZGUsIHZpYQojICAgICAgICAgICAgICAgICAgICAgICAgICAgYG92ZXJyaWRlLXdpdGhgLiBJZiB0aGUgd29ya2luZyByZXBvJ3Mgb3ZlcnJpZGUgb3JiCiMgICAgICAgICAgICAgICAgICAgICAgICAgICBkZWZpbmVzIGBzZWNvbmQtam9iYCwgdGhhdCBkZWZpbml0aW9uIHJlcGxhY2VzIHRoZQojICAgICAgICAgICAgICAgICAgICAgICAgICAgY2VudHJhbCBkZWZhdWx0IGJlbG93OyBvdGhlcndpc2UgdGhlIGRlZmF1bHQgaXMgdXNlZC4KCnBhcmFtZXRlcnM6CiAgdGVzdDoKICAgIHR5cGU6IHN0cmluZwogICAgZGVmYXVsdDogInBhc3MgbWUiCiAgIyBWYWx1ZSBwYXNzZWQgaW50byB0aGUgKHBvc3NpYmx5IG92ZXJyaWRkZW4pIHNlY29uZCBqb2IuIFNldCBmcm9tIHRoZSB3b3JraW5nIHJlcG8uCiAgc2Vjb25kX21lc3NhZ2U6CiAgICB0eXBlOiBzdHJpbmcKICAgIGRlZmF1bHQ6ICJjZW50cmFsIGRlZmF1bHQgZm9yIHNlY29uZC1qb2IiCiAgIyBVUkwgb3JiIHRoYXQgTUFZIG92ZXJyaWRlIGBzZWNvbmQtam9iYC4gVGhlIHNldHVwIGpvYiBzZXRzIHRoaXMgcGVyLXJlcG86IHRvCiAgIyB0aGUgd29ya2luZyByZXBvJ3MgY2kvYXBwLnltbCB3aGVuIHRoYXQgZmlsZSBkZWZpbmVzIGpvYnMsIG90aGVyd2lzZSB0byB0aGUKICAjIHNoYXJlZCBvcmIgYmVsb3cgKHdoaWNoIGhhcyBubyBgc2Vjb25kLWpvYmApLiBTbyB0aGUgREVGQVVMVCBpcyAibm8gb3ZlcnJpZGUiCiAgIyAtLSBvdmVycmlkZS13aXRoIGZhbGxzIGJhY2sgdG8gdGhlIGNlbnRyYWwgYmFzZSBqb2IuCiAgb3ZlcnJpZGVfb3JiX3VybDoKICAgIHR5cGU6IHN0cmluZwogICAgZGVmYXVsdDogImh0dHBzOi8vcmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbS9mZWxpeHNoaWZ0ZWxsZWNvbi9jZW50cmFsLWNvbmZpZy1jaXJjbGVjaS9jb250aW51YXRpb24vb3Jicy9vcmIueW1sIgoKb3JiczoKICBjZW50cmFsLW9yYjogaHR0cHM6Ly9yYXcuZ2l0aHVidXNlcmNvbnRlbnQuY29tL2ZlbGl4c2hpZnRlbGxlY29uL2NlbnRyYWwtY29uZmlnLWNpcmNsZWNpL2NvbnRpbnVhdGlvbi9vcmJzL29yYi55bWwKICBvdmVycmlkZS1vcmI6IDw8IHBpcGVsaW5lLnBhcmFtZXRlcnMub3ZlcnJpZGVfb3JiX3VybCA+PgoKam9iczoKICAjIENlbnRyYWwgZGVmYXVsdCAoZmFsbGJhY2spIGZvciB0aGUgb3ZlcnJpZGFibGUgc2Vjb25kIGpvYi4gVXNlZCBvbmx5IGlmIHRoZQogICMgb3ZlcnJpZGUgb3JiIGRvZXMgbm90IGRlZmluZSBgc2Vjb25kLWpvYmAuCiAgc2Vjb25kLWpvYjoKICAgIGRvY2tlcjoKICAgICAgLSBpbWFnZTogY2ltZy9iYXNlOnN0YWJsZQogICAgcmVzb3VyY2VfY2xhc3M6IHNtYWxsCiAgICBwYXJhbWV0ZXJzOgogICAgICBqb2JfcGFyYW1fMjoKICAgICAgICB0eXBlOiBzdHJpbmcKICAgICAgICBkZWZhdWx0OiAiYmFzZSBkZWZhdWx0IgogICAgc3RlcHM6CiAgICAgIC0gcnVuOiAnZWNobyAiQkFTRSAoY2VudHJhbCkgc2Vjb25kLWpvYjogPDwgcGFyYW1ldGVycy5qb2JfcGFyYW1fMiA+PiInCgp3b3JrZmxvd3M6CiAgdGVzdC13b3JrZmxvdzoKICAgIGpvYnM6CiAgICAgIC0gY2VudHJhbC1vcmIvb3JiLWpvYjoKICAgICAgICAgIGpvYl9wYXJhbV8xOiA8PCBwaXBlbGluZS5wYXJhbWV0ZXJzLnRlc3QgPj4KICAgICAgLSBzZWNvbmQtam9iOgogICAgICAgICAgb3ZlcnJpZGUtd2l0aDogb3ZlcnJpZGUtb3JiL3NlY29uZC1qb2IKICAgICAgICAgIGpvYl9wYXJhbV8yOiA8PCBwaXBlbGluZS5wYXJhbWV0ZXJzLnNlY29uZF9tZXNzYWdlID4+Cg==" | base64 -d > /tmp/continued.yml
-            cat /tmp/continued.yml
+          name: Show fetched continued config
+          command: cat /tmp/continued.yml
       - continuation/continue:
           configuration_path: /tmp/continued.yml
           parameters: /tmp/pipeline-parameters.json
@@ -65,4 +127,5 @@ jobs:
 workflows:
   setup:
     jobs:
-      - build-parameters
+      - build-parameters:
+          context: central-config-reader
