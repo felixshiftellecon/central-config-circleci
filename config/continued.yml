@@ -58,5 +58,8 @@ workflows:
       - central-orb/orb-job:
           job_param_1: << pipeline.parameters.test >>
       - second-job:
+          # Display the resolved job name in the UI so an override is visibly
+          # distinct from the central base job (which shows as "second-job").
+          name: << pipeline.parameters.override_job >>
           override-with: override-orb/<< pipeline.parameters.override_job >>
           job_param_2: << pipeline.parameters.second_message >>
