@@ -9,5 +9,12 @@ jobs:
       job_param_1:
         type: string
         default: "don't show me"
+      # Orb version marker. This default is the only thing that differs between
+      # orb shas, so bumping it and re-pinning central_orb_ref is what proves an
+      # emergency orb deploy from the central repo. Callers do not pass this, so
+      # whichever sha central_orb_ref points at supplies the value.
+      version:
+        type: string
+        default: "1"
     steps:
-      - run: echo << parameters.job_param_1 >>
+      - run: echo "central-orb orb-job [orb version << parameters.version >>] job_param_1=<< parameters.job_param_1 >>"
