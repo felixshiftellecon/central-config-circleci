@@ -39,7 +39,7 @@ parameters:
   # this default in one commit on the continuation branch.
   central_orb_ref:
     type: string
-    default: "12e40f0018a36321780e73eec922b1624bff5dda"
+    default: "27f99ce2e3c8041200a6ef7ae8b622a9960a438c"
 
 orbs:
   central-orb: https://raw.githubusercontent.com/felixshiftellecon/central-config-circleci/<< pipeline.parameters.central_orb_ref >>/orbs/orb.yml
