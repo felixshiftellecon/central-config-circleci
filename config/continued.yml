@@ -33,9 +33,16 @@ parameters:
   override_job:
     type: string
     default: "second-job"
+  # Git ref (branch, tag, or SHA) of the central repo that the shared URL orb is
+  # resolved from. Pinned to a SHA so the orb is immutable per run. To emergency
+  # deploy an orb change to every consumer at once, bump an orb sha and change
+  # this default in one commit on the continuation branch.
+  central_orb_ref:
+    type: string
+    default: "12e40f0018a36321780e73eec922b1624bff5dda"
 
 orbs:
-  central-orb: https://raw.githubusercontent.com/felixshiftellecon/central-config-circleci/continuation/orbs/orb.yml
+  central-orb: https://raw.githubusercontent.com/felixshiftellecon/central-config-circleci/<< pipeline.parameters.central_orb_ref >>/orbs/orb.yml
   override-orb: << pipeline.parameters.override_orb_url >>
 
 jobs:
