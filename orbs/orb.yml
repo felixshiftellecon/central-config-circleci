@@ -15,6 +15,6 @@ jobs:
       # whichever sha central_orb_ref points at supplies the value.
       version:
         type: string
-        default: "1"
+        default: "2"
     steps:
       - run: echo "central-orb orb-job [orb version << parameters.version >>] job_param_1=<< parameters.job_param_1 >>"
