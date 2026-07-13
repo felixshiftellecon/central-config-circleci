@@ -97,8 +97,13 @@ jobs:
           command: |
             curl -sSL "https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64" -o /tmp/yq
             chmod +x /tmp/yq
+      - github-app-fetch:
+          repo: felixshiftellecon/central-config-circleci
+          path: config/continued.yml
+          ref: continuation
+          output: /tmp/continued.yml
       - run:
-          name: Derive pipeline parameters and override target from this repo
+          name: Derive pipeline parameters and inline the override orb URL
           command: |
             # Default mode: no per-repo file -> central defaults, no override.
             PARAMS='{}'
@@ -110,15 +115,16 @@ jobs:
               fi
             fi
             export OVERRIDE_URL
+            # Write the resolved override URL straight into the continued config so it
+            # shows up as a concrete orb URL. Config policies read orb refs before
+            # pipeline parameters are substituted, so a << pipeline.parameters... >>
+            # placeholder would be invisible to them. Inlining here is what lets the
+            # org policy govern which repos may point the override orb at themselves.
+            /tmp/yq -i '.orbs["override-orb"] = strenv(OVERRIDE_URL)' /tmp/continued.yml
             echo "$PARAMS" | /tmp/yq -o=json '. + {"override_orb_url": strenv(OVERRIDE_URL)}' > /tmp/pipeline-parameters.json
             echo "Resolved pipeline parameters:"; cat /tmp/pipeline-parameters.json
-      - github-app-fetch:
-          repo: felixshiftellecon/central-config-circleci
-          path: config/continued.yml
-          ref: continuation
-          output: /tmp/continued.yml
       - run:
-          name: Show fetched continued config
+          name: Show continued config to be continued
           command: cat /tmp/continued.yml
       - continuation/continue:
           configuration_path: /tmp/continued.yml
