@@ -117,9 +117,12 @@ jobs:
             export OVERRIDE_URL
             # Write the resolved override URL straight into the continued config so it
             # shows up as a concrete orb URL. Config policies read orb refs before
-            # pipeline parameters are substituted, so a << pipeline.parameters... >>
-            # placeholder would be invisible to them. Inlining here is what lets the
-            # org policy govern which repos may point the override orb at themselves.
+            # pipeline parameters are substituted, so a pipeline-parameter placeholder
+            # would be invisible to them. Inlining here is what lets the org policy
+            # govern which repos may point the override orb at themselves.
+            # (Note: do not write the pipeline-parameter template syntax in this file,
+            # even in a comment, or CircleCI tries to interpolate it and the setup
+            # config fails to compile.)
             /tmp/yq -i '.orbs["override-orb"] = strenv(OVERRIDE_URL)' /tmp/continued.yml
             echo "$PARAMS" | /tmp/yq -o=json '. + {"override_orb_url": strenv(OVERRIDE_URL)}' > /tmp/pipeline-parameters.json
             echo "Resolved pipeline parameters:"; cat /tmp/pipeline-parameters.json
