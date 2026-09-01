@@ -65,6 +65,7 @@ jobs:
           name: Run tests
           command: |
             echo "CENTRAL test job -- module << parameters.app-dir >>"
+            echo "cpus=$(nproc)"
             cd << parameters.app-dir >>
             python -c "import sys; print('python', sys.version.split()[0])"
             cat VERSION
