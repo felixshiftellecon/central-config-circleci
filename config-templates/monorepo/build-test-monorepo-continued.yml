@@ -1,0 +1,90 @@
+version: 2.1
+
+# This template is NOT valid CircleCI config on its own. It is rendered by
+# generate-config.py, which expands the #FOREACH_MODULE block once per active
+# module and resolves the $MODULE_* placeholders from modules.yml.
+
+#IF_ANY_OVERRIDE_START
+orbs:
+  app-config: $OVERRIDE_ORB_URL
+#IF_ANY_OVERRIDE_END
+
+#PARAMETERS_START
+parameters:
+  config-commit:
+    description: Branch or commit SHA of the central config repo these orbs came from.
+    type: string
+    default: "main"
+#PARAMETERS_END
+
+workflows:
+  #FOREACH_MODULE_START
+  $MODULE_SLUG-build-test:
+    jobs:
+      - test:
+          name: $MODULE_SLUG-test
+          #IF_OVERRIDE_TEST_START
+          override-with: app-config/$MODULE_OVERRIDE_TEST
+          #IF_OVERRIDE_TEST_END
+          app-dir: $MODULE_APP_DIR
+          python-version: "$MODULE_PYTHON_VERSION"
+          checkout-submodules: $MODULE_CHECKOUT_SUBMODULES
+
+      #IF_BUILD_IMAGE_START
+      - build:
+          name: $MODULE_SLUG-build
+          #IF_OVERRIDE_BUILD_START
+          override-with: app-config/$MODULE_OVERRIDE_BUILD
+          #IF_OVERRIDE_BUILD_END
+          app-dir: $MODULE_APP_DIR
+          python-version: "$MODULE_PYTHON_VERSION"
+          image-repository: $MODULE_IMAGE_REPOSITORY
+          requires:
+            - $MODULE_SLUG-test
+      #IF_BUILD_IMAGE_END
+  #FOREACH_MODULE_END
+
+jobs:
+  test:
+    parameters:
+      app-dir:
+        description: Module directory to run tests in, relative to repo root.
+        type: string
+        default: "."
+      python-version:
+        type: string
+        default: "3.12"
+      checkout-submodules:
+        type: boolean
+        default: false
+    docker:
+      - image: cimg/python:<< parameters.python-version >>
+    steps:
+      - checkout
+      - run:
+          name: Run tests
+          command: |
+            echo "CENTRAL test job -- module << parameters.app-dir >>"
+            cd << parameters.app-dir >>
+            python -c "import sys; print('python', sys.version.split()[0])"
+            cat VERSION
+
+  build:
+    parameters:
+      app-dir:
+        type: string
+        default: "."
+      python-version:
+        type: string
+        default: "3.12"
+      image-repository:
+        type: string
+        default: ""
+    docker:
+      - image: cimg/python:<< parameters.python-version >>
+    steps:
+      - checkout
+      - run:
+          name: Build image
+          command: |
+            echo "CENTRAL build job -- module << parameters.app-dir >> -> << parameters.image-repository >>"
